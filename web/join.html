@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Lend a tab — ce-tabnet</title>
+<meta name="theme-color" content="#03060e" />
+<meta name="description" content="Open this page and your browser tab becomes one stage of a large language model, sharded across many tabs. No install. Leave it open and you're computing." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%2337c6ff' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M4 12c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3'/%3E%3Cpath d='M4 19c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..700;1,9..144,500..600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--abyss:#03060e;--deep:#070d18;--panel:#0a1422;--line:rgba(116,176,255,.13);--line-2:rgba(116,176,255,.07);
+  --text:#e9f1fb;--muted:#92a8c6;--faint:#5e768f;--blue:#3b82ff;--cyan:#37c6ff;--surf:#7af0ff;--ok:#43e0a0;--warn:#ffb454;--bad:#ff5d72;
+  --grad:linear-gradient(118deg,#2f6bff,#37c6ff 56%,#7af0e6);--display:"Fraunces",serif;--body:"Hanken Grotesk",sans-serif;--mono:"JetBrains Mono",monospace}
+*{box-sizing:border-box}html,body{margin:0;padding:0;max-width:100%;overflow-x:clip}
+body{background:var(--abyss);color:var(--text);font-family:var(--body);line-height:1.6;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(70% 50% at 50% -10%,rgba(55,198,255,.16),transparent 60%),radial-gradient(50% 40% at 90% 110%,rgba(47,107,255,.14),transparent 60%)}
+a{color:inherit;text-decoration:none}
+.wrap{position:relative;z-index:1;max-width:780px;margin:0 auto;padding:0 20px}
+nav{display:flex;align-items:center;gap:12px;height:60px;border-bottom:1px solid var(--line-2)}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--display);font-weight:600;font-size:19px}
+.brand svg{width:24px;height:24px}.brand .ce{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+nav .sp{flex:1}nav a.lk{color:var(--muted);font-size:14px;font-weight:500}nav a.lk:hover{color:var(--text)}
+
+header{padding:34px 0 6px}
+.kick{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(28px,6.4vw,44px);letter-spacing:-.02em;line-height:1.06;margin:12px 0 0}
+h1 em{font-style:italic;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{color:var(--muted);margin:14px 0 0;max-width:56ch}
+
+/* ---- the hero status: the viral line ---- */
+.hero{margin:26px 0 0;padding:22px 22px 20px;border:1px solid var(--line);border-radius:18px;background:var(--panel);position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 100% at 0% 0%,rgba(55,198,255,.10),transparent 55%)}
+.hero .toprow{display:flex;align-items:center;gap:12px}
+.dot{width:12px;height:12px;border-radius:50%;background:#324b63;flex:none;position:relative}
+.dot.on{background:var(--ok)}.dot.on::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 2px rgba(67,224,160,.5);animation:p 2s infinite}
+.dot.warn{background:var(--warn)}.dot.off{background:var(--bad)}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(67,224,160,.5)}100%{box-shadow:0 0 0 13px rgba(67,224,160,0)}}
+.hero .phase{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hero .nid{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--faint);word-break:break-all}
+.headline{font-family:var(--display);font-weight:600;font-size:clamp(22px,5.2vw,32px);letter-spacing:-.01em;line-height:1.16;margin:14px 0 0}
+.headline .hi{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.headline .num{font-variant-numeric:tabular-nums}
+.sub{color:var(--muted);font-size:14px;margin:6px 0 0}
+
+/* ---- pipeline strip: where this tab sits among all stages ---- */
+.pipe{display:flex;align-items:center;gap:3px;margin:18px 0 2px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
+.seg{flex:0 0 auto;height:26px;min-width:14px;border-radius:5px;background:rgba(116,176,255,.10);border:1px solid var(--line-2);position:relative}
+.seg.me{background:var(--grad);box-shadow:0 0 16px rgba(55,198,255,.5)}
+.seg.flow{animation:flow 1.1s ease-out}
+@keyframes flow{0%{box-shadow:0 0 0 0 rgba(122,240,230,.0)}30%{box-shadow:0 0 14px 2px rgba(122,240,230,.8)}100%{box-shadow:0 0 0 0 rgba(122,240,230,0)}}
+.pipe .arrow{flex:0 0 auto;color:var(--faint);font-size:11px;font-family:var(--mono)}
+.pipemeta{font-family:var(--mono);font-size:11px;color:var(--faint);margin:2px 0 0}
+
+.btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:15px;border-radius:11px;padding:12px 18px;cursor:pointer;
+  border:1px solid var(--line);color:var(--text);background:rgba(116,176,255,.05);transition:.2s;font-family:var(--body)}
+.btn:hover{border-color:rgba(116,176,255,.3)}.btn.primary{border:0;color:#021018;font-weight:700;background:var(--grad)}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+
+/* ---- capability + live counters ---- */
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:22px}
+.cap{border:1px solid var(--line);border-radius:13px;background:var(--deep);padding:15px 14px;min-width:0}
+.cap .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.cap .v{font-family:var(--display);font-weight:600;font-size:23px;letter-spacing:-.01em;margin-top:3px;font-variant-numeric:tabular-nums}
+.cap .s{font-size:11.5px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:620px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+h2{font-family:var(--display);font-weight:600;font-size:18px;margin:32px 0 10px}
+.log{border:1px solid var(--line);border-radius:13px;background:#060b14;font-family:var(--mono);font-size:12.5px;
+  padding:14px 16px;max-height:270px;overflow-y:auto;min-height:84px}
+.log .ln{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--faint)}.log .ok{color:var(--ok)}.log .er{color:var(--bad)}.log .jb{color:var(--cyan)}
+
+.fold{margin:26px 0 0;border:1px solid var(--line-2);border-radius:13px;background:rgba(10,20,34,.45)}
+.fold summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:600;font-size:14px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.fold summary::-webkit-details-marker{display:none}
+.fold summary::before{content:"+";font-family:var(--mono);color:var(--cyan)}
+.fold[open] summary::before{content:"–"}
+.fold .body{padding:0 16px 16px;color:var(--muted);font-size:13.5px}
+.fold .body p{margin:8px 0}.fold code{font-family:var(--mono);background:var(--panel);border:1px solid var(--line-2);border-radius:5px;padding:1px 6px;color:#cfe9ff}
+
+.cfg{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cfg label{font-family:var(--mono);font-size:11px;color:var(--faint)}
+input[type=text]{font-family:var(--mono);font-size:12.5px;background:var(--deep);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:200px}
+.hint{color:var(--faint);font-size:13px;margin:18px 0 0}
+footer{border-top:1px solid var(--line-2);padding:24px 0 56px;margin-top:34px;color:var(--faint);font-size:13px}
+.banner{display:none;margin:18px 0 0;padding:13px 16px;border-radius:12px;font-size:13.5px;border:1px solid}
+.banner.show{display:block}
+.banner.cpu{border-color:rgba(255,180,84,.4);background:rgba(255,180,84,.07);color:#ffd9a3}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/"><svg viewBox="0 0 32 32"><g fill="none" stroke="#37c6ff" stroke-width="2.4" stroke-linecap="round"><path d="M4 12c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3"/><path d="M4 19c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3"/></g></svg><span class="ce">ce</span><span style="color:var(--faint);font-weight:500">·tabnet</span></a>
+    <div class="sp"></div>
+    <a class="lk" href="./orchestrator.html">Operator console →</a>
+  </nav>
+
+  <header>
+    <span class="kick">Lend a tab</span>
+    <h1>Your tab is now one <em>stage of a giant model.</em></h1>
+    <p class="lede">No install. This page measured what your device can do, joined a pipeline of tabs,
+      and loaded a slice of a language model's layers into your GPU. Hidden states stream in, your tab computes
+      its layers, and passes them on. Keep it open — you're holding part of a model too big for any one device.</p>
+  </header>
+
+  <!-- HERO: the viral status line -->
+  <section class="hero">
+    <div class="toprow">
+      <span class="dot" id="dot"></span>
+      <span class="phase" id="phase">starting</span>
+      <span class="nid" id="nid"></span>
+    </div>
+
+    <div class="headline" id="headline">Measuring this device…</div>
+    <div class="sub" id="sub">Detecting cores, memory and WebGPU before joining the pipeline.</div>
+
+    <div class="pipe" id="pipe"></div>
+    <div class="pipemeta" id="pipemeta"></div>
+  </section>
+
+  <div class="banner cpu" id="cpuBanner">No WebGPU on this device — running the CPU/WASM fallback. Correct, but slower.
+    Open this page in Chrome or Edge (desktop or Android) for full GPU speed.</div>
+
+  <div class="btnrow">
+    <button class="btn primary" id="toggle">Stop contributing</button>
+    <label class="toggle"><input type="checkbox" id="wake" /> keep screen awake</label>
+  </div>
+
+  <!-- live device + throughput -->
+  <div class="grid">
+    <div class="cap"><div class="k">Your stage</div><div class="v" id="c-stage">—</div><div class="s" id="c-stage-s">of the pipeline</div></div>
+    <div class="cap"><div class="k">Layers held</div><div class="v" id="c-layers">—</div><div class="s" id="c-layers-s">transformer blocks</div></div>
+    <div class="cap"><div class="k">Through you</div><div class="v" id="c-rate">0</div><div class="s">tokens / sec</div></div>
+    <div class="cap"><div class="k">GPU budget</div><div class="v" id="c-vram">—</div><div class="s" id="c-vram-s">renderer</div></div>
+  </div>
+
+  <h2>Activity</h2>
+  <div class="log" id="log"><div class="ln t">waiting for the coordinator…</div></div>
+
+  <div class="cfg">
+    <label>coordinator</label><input type="text" id="hub" placeholder="wss://…/tabnet" />
+    <label>run</label><input type="text" id="run" style="min-width:120px" placeholder="run id" />
+    <button class="btn" id="reconnect">Reconnect</button>
+  </div>
+
+  <details class="fold">
+    <summary>How does one tab help run a 300-billion-parameter model?</summary>
+    <div class="body">
+      <p>The model is split <b>by layers</b>, not copied. Each tab holds a contiguous range of transformer
+      layers — a <b>pipeline stage</b>. A token's hidden state (a few kilobytes) enters stage 0, is computed,
+      and hops tab → tab to the last stage, which samples the next token. Only those tiny activations cross the
+      network; the heavy weights and the KV cache stay local to each tab.</p>
+      <p>A browser tab can hold roughly <b>0.5–2&nbsp;GB</b> of 4-bit weights in WebGPU. A 300B model at 4-bit is
+      about <b>150&nbsp;GB</b>, so it needs on the order of <b>100–300 tabs</b>. Throughput comes from
+      <b>micro-batching</b>: many tokens are in flight across the pipeline at once, so the aggregate token rate
+      scales with the number of concurrent requests even though any single token must traverse every stage.</p>
+      <p>This is the same code path whether the run is a 1.1B model on 1 tab or a 405B model on 300 tabs — only the
+      stage plan changes. See <a href="../docs/scaling-to-300b.md" style="color:var(--cyan)">docs/scaling-to-300b.md</a>.</p>
+    </div>
+  </details>
+
+  <p class="hint">This tab is a CE browser node. The run id comes from <code>?run=</code> and the coordinator
+    from <code>?hub=</code> (defaults to this origin's <code>/tabnet</code>). Your node id is stored locally and
+    reused across reloads.</p>
+
+  <footer>ce-tabnet — pronounced "Sea." A large model, sharded across ordinary browser tabs. Runs on phones and old laptops.</footer>
+</div>
+
+<script type="module">
+import { TabnetNode, detect } from "./tabnet-node.js";
+import { coordinatorBase } from "./config.js";
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n >= 1000 ? (n/1000).toFixed(n>=10000?0:1) + "k" : String(n);
+
+function log(s, cls = "") {
+  const d = $("log"); const t = new Date().toLocaleTimeString();
+  const e = document.createElement("div");
+  e.className = "ln" + (cls ? " " + cls : "");
+  e.innerHTML = '<span class="t">' + t + "</span>  " + s;
+  d.prepend(e); while (d.children.length > 60) d.removeChild(d.lastChild);
+}
+
+// ---- URL config (coordinator URL resolved by web/config.js — the single source of truth) ----
+const params = new URLSearchParams(location.search);
+const defaultHub = coordinatorBase();
+$("run").value = params.get("run") || "demo";
+$("hub").value = params.get("hub") || defaultHub;
+
+// ---- shared UI state ----
+const state = {
+  phase: "init", stage: null, S: null, layers: null,
+  caps: null, rate: 0, tokens: 0, lastFlash: 0,
+};
+
+const PHASES = {
+  init:        ["", "starting"],
+  connecting:  ["warn", "connecting to coordinator"],
+  joined:      ["warn", "in the pool — waiting for a stage"],
+  loading:     ["warn", "loading layer shard"],
+  ready:       ["on", "online — computing"],
+  disconnected:["off", "reconnecting"],
+  stopped:     ["off", "stopped"],
+};
+
+function setPhase(p) {
+  state.phase = p;
+  const [cls, txt] = PHASES[p] || ["", p];
+  $("dot").className = "dot " + cls;
+  $("phase").textContent = txt;
+}
+
+// The headline is the artifact. It always reads as a single confident sentence.
+function renderHeadline() {
+  const h = $("headline"), sub = $("sub");
+  if (state.phase === "ready" && state.stage != null) {
+    const sOf = state.S ? `${state.stage + 1}/${state.S}` : `${state.stage + 1}`;
+    const rate = state.rate > 0 ? state.rate : 0;
+    h.innerHTML =
+      `You are contributing <span class="hi num">stage ${sOf}</span>` +
+      ` · <span class="num">${rate}</span> tok/s flowing through you`;
+    const ly = state.layers ? `${state.layers[1] - state.layers[0]} layers (${state.layers[0]}–${state.layers[1] - 1})` : "";
+    sub.textContent = ly
+      ? `Holding ${ly}. ${fmt(state.tokens)} tokens computed here so far.`
+      : `${fmt(state.tokens)} tokens computed here so far.`;
+  } else if (state.phase === "loading") {
+    h.innerHTML = `Loading <span class="hi num">stage ${state.stage != null ? state.stage + 1 : "?"}</span> into your GPU…`;
+    sub.textContent = state.layers ? `Fetching layers ${state.layers[0]}–${state.layers[1] - 1} as content-addressed shards.` : "Fetching your layer shard.";
+  } else if (state.phase === "joined") {
+    h.innerHTML = `In the pool. Waiting for the coordinator to <span class="hi">assign a stage</span>.`;
+    sub.textContent = "The run starts computing once every stage has a holder.";
+  } else if (state.phase === "connecting") {
+    h.textContent = "Connecting to the coordinator…";
+    sub.textContent = "Opening a WebSocket to the run.";
+  } else if (state.phase === "disconnected") {
+    h.textContent = "Connection dropped — reconnecting…";
+    sub.textContent = "Your slot is held briefly; the run heals if you don't return.";
+  } else if (state.phase === "stopped") {
+    h.textContent = "Stopped. This tab is no longer contributing.";
+    sub.textContent = "Press Start to rejoin the pipeline.";
+  }
+  renderPipe();
+}
+
+// pipeline strip: one segment per stage, this tab's stage lit up.
+function renderPipe(flash = false) {
+  const pipe = $("pipe"), meta = $("pipemeta");
+  const S = state.S || (state.stage != null ? state.stage + 1 : 0);
+  if (!S) { pipe.innerHTML = ""; meta.textContent = ""; return; }
+  // (re)build only when the shape changes, to keep the flash animation snappy
+  if (pipe.childElementCount !== S * 2 - 1) {
+    pipe.innerHTML = "";
+    for (let i = 0; i < S; i++) {
+      const seg = document.createElement("div");
+      seg.className = "seg" + (i === state.stage ? " me" : "");
+      seg.dataset.stage = i;
+      seg.title = "stage " + (i + 1);
+      pipe.appendChild(seg);
+      if (i < S - 1) { const a = document.createElement("span"); a.className = "arrow"; a.textContent = "›"; pipe.appendChild(a); }
+    }
+  }
+  // ensure "me" highlight is correct
+  pipe.querySelectorAll(".seg").forEach((seg) => {
+    const i = +seg.dataset.stage;
+    seg.classList.toggle("me", i === state.stage);
+    if (flash && i === state.stage) { seg.classList.remove("flow"); void seg.offsetWidth; seg.classList.add("flow"); }
+  });
+  meta.textContent = state.S
+    ? `pipeline · ${state.S} stages · activations hop left → right, one tab per stage`
+    : `pipeline forming…`;
+}
+
+// capability cards
+function showCaps(c) {
+  $("c-vram").textContent = c.vram_mb ? (c.vram_mb >= 1024 ? (c.vram_mb / 1024).toFixed(1) + "GB" : c.vram_mb + "MB") : (c.webgpu ? "WebGPU" : "CPU");
+  $("c-vram-s").textContent = c.gpu || (c.webgpu ? "WebGPU adapter" : "WASM fallback");
+  if (!c.webgpu) $("cpuBanner").classList.add("show");
+}
+
+// ---- the node ----
+let node = null;
+
+function makeNode() {
+  const run = $("run").value.trim() || "demo";
+  const hub = $("hub").value.trim() || defaultHub;
+  return new TabnetNode({
+    run, wsBase: hub, onLog: (s) => log(s),
+    onState: (s) => {
+      if (s.caps) { state.caps = s.caps; showCaps(s.caps);
+        $("nid").textContent = "node " + (localStorage.ce_node_id || "").slice(0, 12) + "…"; }
+      if (s.phase) {
+        // map runtime phases to our richer set
+        if (s.phase === "connecting") setPhase("connecting");
+        else if (s.phase === "loading") { setPhase("loading"); state.stage = s.stage ?? state.stage; state.layers = s.layers ?? state.layers;
+          $("c-stage").textContent = (s.stage ?? state.stage) != null ? (s.stage ?? state.stage) + 1 : "—";
+          $("c-layers").textContent = s.layers ? (s.layers[1] - s.layers[0]) : ($("c-layers").textContent);
+          $("c-layers-s").textContent = s.layers ? `${s.layers[0]}–${s.layers[1] - 1}` : "transformer blocks"; }
+        else if (s.phase === "ready") { setPhase("ready"); if (s.stage != null) state.stage = s.stage;
+          $("c-stage").textContent = state.stage != null ? state.stage + 1 : "—"; }
+        else if (s.phase === "disconnected") setPhase("disconnected");
+      }
+      // pull pipeline shape from the runtime if it learned it
+      if (node && typeof node.S === "number") state.S = node.S;
+      $("c-stage-s").textContent = state.S ? "of " + state.S : "of the pipeline";
+      renderHeadline();
+    },
+    onMetrics: (m) => {
+      state.rate = m.tokPerSec; state.tokens = m.tokensThrough;
+      $("c-rate").textContent = m.tokPerSec;
+      if (node && typeof node.S === "number") state.S = node.S;
+      renderHeadline();
+      renderPipe(true);   // pulse this stage as a token flows through
+    },
+  });
+}
+
+let running = false;
+async function start() {
+  running = true; $("toggle").textContent = "Stop contributing";
+  // detect first so the cards populate even before the socket is up
+  if (!state.caps) { try { state.caps = await detect(); showCaps(state.caps); } catch {} }
+  node = makeNode();
+  if (typeof node.S === "number") state.S = node.S;
+  node.start();
+}
+function stop() {
+  running = false; $("toggle").textContent = "Start contributing";
+  try { if (node && node.ws) node.ws.close(); } catch {}
+  clearInterval(node && node.hb);
+  node = null; setPhase("stopped"); renderHeadline();
+  log("contributing stopped");
+}
+$("toggle").onclick = () => running ? stop() : start();
+$("reconnect").onclick = () => { if (running) stop(); start(); };
+
+// keep-awake (phones sleep tabs aggressively)
+let lock = null;
+$("wake").onchange = async (e) => {
+  try {
+    if (e.target.checked) { lock = await navigator.wakeLock.request("screen"); log("screen wake lock on", "ok"); }
+    else if (lock) { await lock.release(); lock = null; }
+  } catch { log("wake lock unavailable here", "er"); e.target.checked = false; }
+};
+document.addEventListener("visibilitychange", async () => {
+  if (lock && document.visibilityState === "visible" && $("wake").checked) {
+    try { lock = await navigator.wakeLock.request("screen"); } catch {}
+  }
+});
+
+// rate decays toward 0 when nothing is flowing, so the headline tells the truth at idle.
+setInterval(() => {
+  if (state.phase === "ready" && state.rate > 0) {
+    // if no tick updated us in the last ~3s, fade the displayed rate
+    const lastWin = node && node._win && node._win.length ? node._win[node._win.length - 1] : 0;
+    if (lastWin && performance.now() - lastWin > 3000) {
+      state.rate = 0; $("c-rate").textContent = "0"; renderHeadline();
+    }
+  }
+}, 1500);
+
+setPhase("init");
+renderHeadline();
+start();
+</script>
+</body>
+</html>

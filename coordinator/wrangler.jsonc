@@ -1,0 +1,57 @@
+{
+  // ce-tabnet coordinator — Cloudflare Worker + Durable Object "RunCoordinator".
+  //
+  // Deploy-ready. DO NOT deploy without the user's Cloudflare account + confirmation.
+  // One-command deploy (after filling account_id + route below and `wrangler login`):
+  //
+  //   npx wrangler deploy --config coordinator/wrangler.jsonc
+  //
+  // Local dev (no creds; in-memory DO + WebSocket hibernation emulated by miniflare):
+  //   npx wrangler dev --config coordinator/wrangler.jsonc
+  //
+  // $schema gives editor autocomplete/validation for this file.
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "ce-tabnet",
+  "main": "src/index.js",
+  // Recent date => Durable Objects, WebSocket Hibernation API, and `cloudflare:workers`
+  // module imports are all available.
+  "compatibility_date": "2024-11-01",
+
+  // Fill these in before deploying (see ~/ce-net/CLAUDE.md for the CE Cloudflare account):
+  // "account_id": "59abbbc8e5e8d6cfe0f1b1ed777096fb",
+
+  // Pick ONE egress option before deploy:
+  //  (a) workers.dev subdomain (simplest for the demo):
+  "workers_dev": true,
+  //  (b) a route under ce-net.com (uncomment + remove workers_dev):
+  // "routes": [
+  //   { "pattern": "ce-net.com/tabnet/*", "zone_id": "1e8cbab8bc00451a218db1683bca8f1b" }
+  // ],
+
+  // The Run Durable Object: one instance per run id (idFromName(runId)).
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN",
+        "class_name": "RunCoordinator"
+      }
+    ]
+  },
+
+  // Migration that creates the DO class. SQLite-backed DOs are the modern default and are
+  // required for the WebSocket Hibernation API to bill efficiently.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RunCoordinator"]
+    }
+  ],
+
+  // src/index.js imports ../../web/protocol.js and ../../web/model-config.js with relative
+  // paths; wrangler/esbuild bundles them automatically — no extra config needed.
+
+  "observability": {
+    "enabled": true
+  }
+}

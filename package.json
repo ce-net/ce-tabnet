@@ -1,0 +1,40 @@
+{
+  "name": "@ce-net/tabnet",
+  "version": "0.0.1",
+  "description": "Run a large LLM sharded across many ordinary browser tabs (laptops and phones), coordinated so it is dead simple: open a URL, lend a tab. Pipeline-parallel inference over WebGPU, coordinated by a Cloudflare Durable Object, built on CE browser nodes.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Leif Rydenfalk <ledamecrydenfalk@gmail.com>",
+  "homepage": "https://ce-net.com/tabnet",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ce-net/tabnet"
+  },
+  "keywords": [
+    "ce-net",
+    "distributed-inference",
+    "pipeline-parallelism",
+    "webgpu",
+    "llm",
+    "browser",
+    "durable-objects",
+    "petals"
+  ],
+  "//": "The browser parts (web/) are dependency-free vanilla JS + WebGPU and need NO build step. The coordinator (coordinator/) is a Cloudflare Worker + Durable Object; its only dev dependency is wrangler, installed on demand, never required to open the pages.",
+  "scripts": {
+    "dev": "node dev/serve.js",
+    "selftest": "node dev/serve.js --selftest",
+    "dev:coordinator": "wrangler dev --config coordinator/wrangler.jsonc",
+    "deploy:coordinator": "wrangler deploy --config coordinator/wrangler.jsonc",
+    "deploy:check": "wrangler deploy --dry-run --config coordinator/wrangler.jsonc",
+    "serve:web": "node dev/serve.js",
+    "tail": "wrangler tail --config coordinator/wrangler.jsonc"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": ">=3.60.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

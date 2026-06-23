@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>ce-tabnet — run console</title>
+<meta name="theme-color" content="#03060e" />
+<meta name="description" content="Define a Run, watch ordinary browser tabs fill a sharded LLM pipeline, send a prompt, and watch tokens stream with live throughput and per-stage latency." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%2337c6ff' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M4 12c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3'/%3E%3Cpath d='M4 19c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..700;1,9..144,500..600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root{--abyss:#03060e;--deep:#070d18;--panel:#0a1422;--line:rgba(116,176,255,.13);--line-2:rgba(116,176,255,.07);
+  --text:#e9f1fb;--muted:#92a8c6;--faint:#5e768f;--blue:#3b82ff;--cyan:#37c6ff;--surf:#7af0ff;--ok:#43e0a0;--bad:#ff5d72;--warn:#ffb454;
+  --grad:linear-gradient(118deg,#2f6bff,#37c6ff 56%,#7af0e6);--display:"Fraunces",serif;--body:"Hanken Grotesk",sans-serif;--mono:"JetBrains Mono",monospace}
+*{box-sizing:border-box}html,body{margin:0;padding:0;max-width:100%;overflow-x:clip}
+body{background:var(--abyss);color:var(--text);font-family:var(--body);line-height:1.55;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(70% 50% at 50% -10%,rgba(55,198,255,.14),transparent 60%),radial-gradient(50% 40% at 95% 110%,rgba(47,107,255,.12),transparent 60%)}
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:0 20px 80px}
+nav{display:flex;align-items:center;gap:12px;height:60px;border-bottom:1px solid var(--line-2)}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--display);font-weight:600;font-size:19px;text-decoration:none;color:var(--text)}
+.brand svg{width:24px;height:24px}.brand .ce{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+nav .sp{flex:1}nav a.lnk{color:var(--muted);font-size:14px;font-weight:500;text-decoration:none}nav a.lnk:hover{color:var(--text)}
+
+header{padding:34px 0 8px}
+.kick{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(26px,5.4vw,42px);letter-spacing:-.02em;line-height:1.06;margin:10px 0 0}
+h1 em{font-style:italic;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{color:var(--muted);margin:12px 0 0;max-width:64ch;font-size:15px}
+
+.panel{margin-top:18px;border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:18px 20px}
+.panel h2{font-family:var(--display);font-weight:600;font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.panel h2 .tag{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.05em;color:var(--faint);text-transform:uppercase}
+
+label{font-size:12px;color:var(--muted);display:block;margin:0 0 5px;font-weight:500}
+select,input,button,textarea{font-family:var(--body);background:var(--deep);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px}
+select,input{height:38px}
+input[type=number]{font-family:var(--mono)}
+button{cursor:pointer;font-weight:600;transition:.18s}button:hover{border-color:rgba(116,176,255,.35)}
+button.primary{border:0;color:#021018;background:var(--grad)}button.primary:hover{filter:brightness(1.06)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.controls{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.fld{display:flex;flex-direction:column}
+
+.math{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-top:14px;line-height:1.7;
+  border-top:1px solid var(--line-2);padding-top:12px}
+.math b{color:var(--cyan);font-weight:500}.math .hl{color:var(--surf)}
+.bar{height:7px;border-radius:4px;background:#0c1626;margin-top:8px;overflow:hidden;border:1px solid var(--line-2)}
+.bar i{display:block;height:100%;background:var(--grad);width:0;transition:width .4s ease}
+
+.joinrow{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.joinlink{font-family:var(--mono);font-size:12px;color:var(--cyan);word-break:break-all;flex:1;min-width:200px;
+  background:var(--deep);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px}
+.copy{font-size:12px;padding:7px 12px;height:34px}
+
+/* live status strip */
+.strip{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;margin-top:4px}
+.stat{display:flex;flex-direction:column}
+.stat .v{font-family:var(--display);font-weight:600;font-size:25px;line-height:1.1;letter-spacing:-.01em}
+.stat .v.flow{color:var(--ok)}
+.stat .k{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+.dot{width:11px;height:11px;border-radius:50%;background:#324b63;flex:none;position:relative}
+.dot.on{background:var(--ok)}.dot.on::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 2px rgba(67,224,160,.5);animation:p 2s infinite}
+.dot.warn{background:var(--warn)}.dot.off{background:var(--bad)}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(67,224,160,.5)}100%{box-shadow:0 0 0 11px rgba(67,224,160,0)}}
+.runlbl{font-weight:600;font-size:14px}.runlbl .sub{color:var(--faint);font-weight:400;font-family:var(--mono);font-size:12px}
+
+/* topology graph */
+.topowrap{margin-top:6px;overflow-x:auto;border:1px solid var(--line-2);border-radius:12px;background:#050a13}
+svg.topo{display:block;min-width:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.empty{color:var(--faint);font-size:13px;font-family:var(--mono);padding:26px 4px;text-align:center}
+
+/* prompt + output */
+textarea{width:100%;min-height:60px;font-family:var(--mono);font-size:13px;resize:vertical}
+.sendrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.sendrow .opts{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;flex:1}
+.opts .fld input{width:84px;height:34px}
+.out{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:#060b14;padding:16px 18px;
+  font-family:var(--mono);font-size:13.5px;line-height:1.7;min-height:90px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto}
+.out .cursor{display:inline-block;width:8px;height:15px;background:var(--cyan);vertical-align:text-bottom;animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}
+.seqline{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:8px}
+.seqline b{color:var(--muted);font-weight:500}
+
+.twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:760px){.twocol{grid-template-columns:1fr}}
+
+.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin-top:4px}
+.tbl th{text-align:left;color:var(--faint);font-weight:500;text-transform:uppercase;letter-spacing:.04em;font-size:10px;padding:4px 8px;border-bottom:1px solid var(--line-2)}
+.tbl td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.03)}
+.tbl .stg{color:var(--cyan)}.tbl .lat{color:var(--surf)}
+.note{color:var(--faint);font-size:12px;margin-top:10px;line-height:1.6}
+.note code{font-family:var(--mono);background:var(--deep);border:1px solid var(--line-2);border-radius:5px;padding:1px 6px;color:#cfe9ff}
+footer{border-top:1px solid var(--line-2);margin-top:34px;padding:22px 0 0;color:var(--faint);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/"><svg viewBox="0 0 32 32"><g fill="none" stroke="#37c6ff" stroke-width="2.4" stroke-linecap="round"><path d="M4 12c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3"/><path d="M4 19c3 0 3 3 6 3s3-3 6-3 3 3 6 3 3-3 6-3"/></g></svg><span class="ce">ce</span>&nbsp;tabnet</a>
+    <div class="sp"></div>
+    <a class="lnk" href="./join.html">Lend a tab →</a>
+  </nav>
+
+  <header>
+    <span class="kick">ce-tabnet · run console</span>
+    <h1>Run a <em>large model</em> across ordinary browser tabs.</h1>
+    <p class="lede">Pick a model, see how many tabs it needs, share one link, and watch the pipeline fill in real time —
+      contiguous transformer layers per tab, only hidden-state activations cross the network. Then send a prompt and
+      watch tokens stream with live throughput and per-stage latency. This is the "let's go bigger" dashboard.</p>
+  </header>
+
+  <!-- ============ DEFINE A RUN ============ -->
+  <div class="panel">
+    <h2>Define a run <span class="tag">model · stage plan · capacity math</span></h2>
+    <div class="controls">
+      <div class="fld" style="min-width:220px"><label for="model">Model</label>
+        <select id="model"></select></div>
+      <div class="fld"><label for="stages">Stages (tabs)</label>
+        <input id="stages" type="number" min="1" value="0" style="width:96px" placeholder="auto" /></div>
+      <div class="fld"><label for="replicas">Replicas / stage</label>
+        <input id="replicas" type="number" min="1" value="1" style="width:96px" /></div>
+      <div class="fld"><label for="run">Run id</label>
+        <input id="run" value="demo" style="width:130px" /></div>
+      <div class="fld"><label for="perTab">GB / tab budget</label>
+        <input id="perTab" type="number" min="0.25" step="0.25" value="1" style="width:96px" /></div>
+      <button class="primary" id="create" style="height:38px">Create run</button>
+    </div>
+
+    <div class="math" id="math">—</div>
+    <div class="bar" id="fillbar"><i id="fillbar-i"></i></div>
+
+    <div class="joinrow">
+      <span class="math" style="border:0;padding:0;margin:0">Join link — open in N tabs / phones / old laptops:</span>
+    </div>
+    <div class="joinrow">
+      <span class="joinlink" id="joinlink">create a run to get the join link</span>
+      <button class="copy" id="copy">Copy</button>
+      <button class="copy" id="openjoin">Open a tab</button>
+    </div>
+  </div>
+
+  <!-- ============ LIVE TOPOLOGY ============ -->
+  <div class="panel">
+    <h2>Pipeline topology <span class="tag">stages · owners · gaps · replicas</span></h2>
+    <div class="strip" style="margin-bottom:14px">
+      <span class="dot" id="rdot"></span>
+      <span class="runlbl" id="runlbl">no run yet — <span class="sub">define one above</span></span>
+      <div style="flex:1"></div>
+      <div class="stat"><div class="v" id="s-tabs">0/0</div><div class="k">tabs present / needed</div></div>
+      <div class="stat"><div class="v" id="s-cover">0%</div><div class="k">pipeline filled</div></div>
+      <div class="stat"><div class="v flow" id="s-tps">0.0</div><div class="k">tok/s (end-to-end)</div></div>
+      <div class="stat"><div class="v" id="s-ttft">—</div><div class="k">time to first token</div></div>
+    </div>
+
+    <div class="topowrap"><svg class="topo" id="topo" height="160"><text x="20" y="84" class="empty" fill="#5e768f" font-family="ui-monospace,monospace" font-size="13">no stages yet — create a run, then lend tabs</text></svg></div>
+
+    <div class="legend">
+      <span><i style="background:#43e0a0"></i> ready (holder computing)</span>
+      <span><i style="background:#ffb454"></i> recruiting (waiting for a tab)</span>
+      <span><i style="background:#ff5d72"></i> gap (orphaned — healing)</span>
+      <span><i style="background:#2f6bff"></i> replica (redundant holder)</span>
+      <span><i style="background:#37c6ff"></i> activation flow (hidden state, ~KB/token)</span>
+    </div>
+  </div>
+
+  <!-- ============ PROMPT + STREAM ============ -->
+  <div class="twocol">
+    <div class="panel">
+      <h2>Prompt <span class="tag">tokens stream as the pipeline runs</span></h2>
+      <textarea id="prompt" placeholder="Type a prompt — it prefills at stage 0, hops stage to stage, and tokens stream back from the last stage…">Explain, in two sentences, how pipeline parallelism lets many small devices serve one big model.</textarea>
+      <div class="sendrow">
+        <button class="primary" id="send" disabled style="height:36px">Send prompt</button>
+        <button id="cancel" disabled style="height:36px">Cancel</button>
+        <div class="opts">
+          <div class="fld"><label>max tokens</label><input id="maxtok" type="number" min="1" value="128" /></div>
+          <div class="fld"><label>temperature</label><input id="temp" type="number" min="0" step="0.05" value="0.7" /></div>
+          <div class="fld"><label>top-p</label><input id="topp" type="number" min="0" max="1" step="0.05" value="0.95" /></div>
+        </div>
+      </div>
+      <div class="out" id="out"><span style="color:var(--faint)">output appears here…</span></div>
+      <div class="seqline" id="seqline"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Per-stage latency <span class="tag">where the time goes</span></h2>
+      <table class="tbl" id="lattbl">
+        <thead><tr><th>stage</th><th>layers</th><th>holder</th><th>compute / tok</th><th>tok served</th></tr></thead>
+        <tbody id="latbody"><tr><td colspan="5" class="empty" style="padding:18px">no telemetry yet</td></tr></tbody>
+      </table>
+      <p class="note">End-to-end <b>tok/s</b> is measured from token arrival times in this console — it is the honest
+        product number. Per-stage compute comes from each tab's <code>metrics</code> telemetry when the coordinator
+        forwards it; otherwise it shows <code>—</code>. Single-stream latency carries a pipeline-depth tax (a token
+        traverses every stage); aggregate throughput across concurrent prompts is the win. See
+        <code>docs/scaling-to-300b.md</code>.</p>
+    </div>
+  </div>
+
+  <footer>
+    ce-tabnet — pipeline-parallel LLM inference across browser tabs. Honest math: a tab holds ~0.5–2&nbsp;GB of WebGPU
+    weights, so 300B&nbsp;@&nbsp;4-bit (~150&nbsp;GB) needs ~100–300 tabs. The same code path runs a small model on a few
+    tabs today and a 300B-class model on hundreds. Coordination: Cloudflare Worker + Durable Object (one per run).
+  </footer>
+</div>
+
+<script type="module">
+import * as P from "./protocol.js";
+import { MODELS, tabsNeeded, defaultStagePlan } from "./model-config.js";
+import { coordinatorBase } from "./config.js";
+
+const $ = (id) => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+
+// ---------- model picker ----------
+for (const id of Object.keys(MODELS)) {
+  const m = MODELS[id];
+  const o = document.createElement("option");
+  o.value = id;
+  o.textContent = `${id}  ·  ${(m.approx_weight_bytes / 1e9).toFixed(1)} GB`;
+  $("model").appendChild(o);
+}
+
+// ---------- coordinator endpoint ----------
+// Resolved by web/config.js — the single source of truth shared with join.html:
+// ?hub=... overrides; else window.CE_TABNET_HUB; else local wrangler dev; else same-origin /tabnet.
+// The Worker routes /run/:id/ws to the RunCoordinator Durable Object.
+const HUB = coordinatorBase();
+
+// ---------- capacity math (honest, recomputed on every input) ----------
+function perTabBytes() { return Math.max(0.25, +$("perTab").value || 1) * 1024 * 1024 * 1024; }
+function refreshMath() {
+  const id = $("model").value, m = MODELS[id];
+  const gb = (m.approx_weight_bytes / 1e9).toFixed(1);
+  const ptb = perTabBytes();
+  const need = tabsNeeded(id, ptb);
+  const reps = Math.max(1, +$("replicas").value || 1);
+  const withReps = need * reps;
+  const actKB = (m.hidden_dim * 2 / 1024).toFixed(1); // f16 hidden state per token
+  const requested = +$("stages").value || 0;
+  const S = requested > 0 ? requested : need;
+  const layersPer = (m.n_layers / S).toFixed(1);
+  $("math").innerHTML =
+    `<span class="hl">${id}</span> — <b>${gb} GB</b> of weights @ ${m.quant}, ${m.n_layers} layers, hidden ${m.hidden_dim}.<br>` +
+    `At <b>${(ptb / 1e9).toFixed(2)} GB/tab</b> ⇒ <b>${need} stage tabs</b> minimum` +
+    (reps > 1 ? ` · <b>${withReps} tabs</b> with R=${reps} (redundancy)` : "") + `.<br>` +
+    `Stage plan: <b>${S} stages</b> × ~${layersPer} layers each. ` +
+    `Activation per hop: <b>${actKB} KB/token</b> (f16 hidden state) — only this crosses the network.<br>` +
+    `<span style="color:var(--faint)">300B @ 4-bit ≈ 150 GB ⇒ ~${Math.ceil(150e9 / ptb)} tabs at this budget. Same code path.</span>`;
+}
+$("model").onchange = refreshMath;
+for (const id of ["stages", "replicas", "perTab"]) $(id).oninput = refreshMath;
+refreshMath();
+
+// ---------- run state ----------
+let ws = null, run = "demo", connected = false;
+let state = null;                 // last run-state snapshot
+const holderTps = new Map();      // node -> {tps, compute_ms, tokens} from forwarded metrics
+// generation timing (end-to-end, honest — measured here from token arrivals)
+let gen = null;                   // { seq_id, t0, tFirst, count, win:[ts], maxTok }
+
+function joinLink() {
+  const base = location.pathname.replace(/orchestrator\.html$/, "join.html");
+  return `${location.origin}${base}?run=${encodeURIComponent(run)}&hub=${encodeURIComponent(HUB)}`;
+}
+
+function connect(onReady) {
+  run = ($("run").value || "demo").trim();
+  if (ws && connected) { onReady && onReady(); return; }
+  setRunDot("warn", "connecting to coordinator…");
+  ws = new WebSocket(`${HUB}/run/${run}/ws?role=operator`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    connected = true;
+    ws.send(JSON.stringify(P.subscribeTokens(run)));   // all-seq status + state
+    onReady && onReady();
+  };
+  ws.onmessage = (ev) => {
+    if (ev.data instanceof ArrayBuffer) return;        // operators don't get binary activation frames
+    let m; try { m = JSON.parse(ev.data); } catch { return; }
+    switch (m.t) {
+      case P.T.RUN_STATE:  onRunState(m); break;
+      case P.T.TOKEN:      onToken(m); break;
+      case P.T.SEQ_STATUS: onSeqStatus(m); break;
+      case P.T.METRICS:    onMetrics(m); break;        // forwarded per-stage telemetry (if coordinator relays)
+      case P.T.ERROR:      onError(m); break;
+    }
+  };
+  ws.onclose = () => { connected = false; setRunDot("off", "disconnected"); setTimeout(() => { if (run) connect(); }, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+}
+
+$("create").onclick = () => {
+  refreshMath();
+  connect(() => {
+    const stages = +$("stages").value || null;
+    const replicas = Math.max(1, +$("replicas").value || 1);
+    ws.send(JSON.stringify(P.createRun(run, $("model").value, { stages, replicas })));
+    const link = joinLink();
+    $("joinlink").textContent = link;
+    $("openjoin").dataset.href = link;
+    setRunDot("warn", "run created — waiting for tabs to join");
+  });
+};
+
+$("copy").onclick = async () => {
+  const t = $("joinlink").textContent;
+  if (!t || t.startsWith("create")) return;
+  try { await navigator.clipboard.writeText(t); $("copy").textContent = "Copied"; setTimeout(() => $("copy").textContent = "Copy", 1200); } catch {}
+};
+$("openjoin").onclick = () => { const h = $("openjoin").dataset.href; if (h) window.open(h, "_blank", "noopener"); };
+
+// ---------- prompt lifecycle ----------
+$("send").onclick = () => {
+  if (!connected) return;
+  const text = $("prompt").value;
+  if (!text.trim()) return;
+  const sid = "s" + Date.now().toString(36);
+  gen = { seq_id: sid, t0: performance.now(), tFirst: null, count: 0, win: [], maxTok: +$("maxtok").value || 128 };
+  $("out").textContent = "";
+  $("out").appendChild(cursorEl());
+  $("s-tps").textContent = "0.0";
+  $("s-ttft").textContent = "…";
+  $("send").disabled = true; $("cancel").disabled = false;
+  ws.send(JSON.stringify(P.subscribeTokens(run, sid)));
+  ws.send(JSON.stringify(P.prompt(run, sid, text, {
+    max_tokens: +$("maxtok").value || 128,
+    temperature: +$("temp").value || 0.7,
+    top_p: +$("topp").value || 0.95,
+  })));
+  $("seqline").innerHTML = `seq <b>${sid}</b> · queued`;
+};
+
+$("cancel").onclick = () => {
+  if (connected && gen) ws.send(JSON.stringify(P.cancel(run, gen.seq_id)));
+  $("cancel").disabled = true; $("send").disabled = false;
+};
+
+function cursorEl() { const c = document.createElement("span"); c.className = "cursor"; return c; }
+
+function onToken(m) {
+  if (!gen || (m.seq_id && m.seq_id !== gen.seq_id)) return;
+  const now = performance.now();
+  if (gen.tFirst === null) { gen.tFirst = now; $("s-ttft").textContent = ((now - gen.t0) / 1000).toFixed(2) + "s"; }
+  gen.count++;
+  gen.win.push(now);
+  while (gen.win.length && now - gen.win[0] > 5000) gen.win.shift();
+  // rolling end-to-end tok/s over a 5 s window
+  const span = gen.win.length > 1 ? (now - gen.win[0]) / 1000 : 0;
+  const tps = span > 0 ? (gen.win.length - 1) / span : 0;
+  $("s-tps").textContent = tps.toFixed(1);
+
+  // append text (strip the trailing blinking cursor, write, re-add)
+  const out = $("out");
+  const cur = out.querySelector(".cursor"); if (cur) cur.remove();
+  out.appendChild(document.createTextNode(m.text != null && m.text !== "" ? m.text : `[${m.token_id}]`));
+  if (!m.done) out.appendChild(cursorEl());
+  out.scrollTop = out.scrollHeight;
+
+  if (m.done) finishGen("done");
+}
+
+function onSeqStatus(m) {
+  if (!gen || m.seq_id !== gen.seq_id) {
+    $("seqline").innerHTML = `seq <b>${m.seq_id}</b> · ${m.status}` + (m.detail ? ` — ${m.detail}` : "");
+    return;
+  }
+  const el = (n) => ((performance.now() - gen.t0) / 1000).toFixed(1) + "s";
+  $("seqline").innerHTML = `seq <b>${gen.seq_id}</b> · <b>${m.status}</b> · ${gen.count} tok · ${el()} elapsed`
+    + (m.detail ? ` — ${m.detail}` : "");
+  if (m.status === "done" || m.status === "error" || m.status === "cancelled") finishGen(m.status);
+}
+
+function finishGen(status) {
+  const out = $("out"); const cur = out.querySelector(".cursor"); if (cur) cur.remove();
+  $("send").disabled = false; $("cancel").disabled = true;
+  if (gen) {
+    const tot = (performance.now() - gen.t0) / 1000;
+    const avg = tot > 0 ? (gen.count / tot) : 0;
+    $("seqline").innerHTML = `seq <b>${gen.seq_id}</b> · <b>${status}</b> · `
+      + `${gen.count} tokens in ${tot.toFixed(2)}s · avg <b>${avg.toFixed(1)} tok/s</b>`
+      + (gen.tFirst ? ` · TTFT ${((gen.tFirst - gen.t0) / 1000).toFixed(2)}s` : "");
+  }
+}
+
+function onError(m) {
+  const out = $("out"); const cur = out.querySelector(".cursor"); if (cur) cur.remove();
+  out.appendChild(document.createTextNode(`\n[error ${m.code}] ${m.message}\n`));
+  $("send").disabled = !connected; $("cancel").disabled = true;
+}
+
+function onMetrics(m) {
+  // forwarded per-stage telemetry: { node, stage, tokens, compute_ms, vram_used_mb }
+  holderTps.set(m.node, { stage: m.stage, compute_ms: m.compute_ms, tokens: m.tokens, vram: m.vram_used_mb });
+  renderLatency();
+}
+
+// ---------- run-state: header + topology + latency table ----------
+function onRunState(m) {
+  state = m;
+  const stages = m.stages || [];
+  const filled = stages.filter((s) => (s.holders?.length || 0) > 0).length;
+  const cover = stages.length ? Math.round((filled / stages.length) * 100) : 0;
+
+  $("s-tabs").textContent = `${m.tabs_present ?? 0}/${m.tabs_needed ?? stages.length}`;
+  $("s-cover").textContent = cover + "%";
+  $("fillbar-i").style.width = cover + "%";
+
+  const sub = `model ${m.model_id ?? "?"} · ${stages.length} stages · R=${m.R ?? 1}`;
+  if (m.ready) { setRunDot("on", "READY — pipeline complete"); }
+  else if (filled > 0) { setRunDot("warn", `filling — ${filled}/${stages.length} stages held`); }
+  else { setRunDot("warn", "waiting for tabs to join"); }
+  $("runlbl").innerHTML = `<span>${m.ready ? "READY" : "filling pipeline"}</span> <span class="sub">${sub}</span>`;
+
+  drawTopology(stages);
+  renderLatency();
+}
+
+function setRunDot(cls, txt) {
+  $("rdot").className = "dot " + cls;
+  const lbl = $("runlbl");
+  if (!state) lbl.innerHTML = `<span>${txt}</span>`;
+}
+
+// ---------- SVG topology graph ----------
+// Renders stages left-to-right: stage 0 (with embed) -> ... -> stage S-1 (with lm_head).
+// Each node box shows stage index, layer range, holder count. Color encodes status.
+// Arrows between stages represent the activation flow (hidden state, ~KB/token).
+function statusColor(s) {
+  const h = s.holders?.length || 0;
+  if (s.status === "gap" || (s.status === "recruiting" && h === 0)) return h === 0 ? "#ff5d72" : "#ffb454";
+  if (h === 0) return "#ffb454";              // recruiting / waiting
+  return "#43e0a0";                            // ready
+}
+function drawTopology(stages) {
+  const svg = $("topo");
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  if (!stages.length) {
+    svg.setAttribute("height", 160);
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", 20); t.setAttribute("y", 84);
+    t.setAttribute("fill", "#5e768f"); t.setAttribute("font-family", "ui-monospace,monospace");
+    t.setAttribute("font-size", "13");
+    t.textContent = "no stages yet — create a run, then lend tabs";
+    svg.appendChild(t); return;
+  }
+  const padX = 24, padY = 26, boxW = 132, boxH = 86, gap = 46;
+  const rows = 1; // single pipeline row; replicas stack inside a box
+  const W = padX * 2 + stages.length * boxW + (stages.length - 1) * gap;
+  const H = padY * 2 + boxH + 18;
+  svg.setAttribute("viewBox", `0 0 ${Math.max(W, 320)} ${H}`);
+  svg.setAttribute("height", H);
+  svg.style.minWidth = W + "px";
+
+  // arrows (under boxes)
+  for (let i = 0; i < stages.length - 1; i++) {
+    const x1 = padX + i * (boxW + gap) + boxW;
+    const x2 = padX + (i + 1) * (boxW + gap);
+    const y = padY + boxH / 2;
+    const a = stages[i], b = stages[i + 1];
+    const live = (a.holders?.length || 0) > 0 && (b.holders?.length || 0) > 0;
+    const line = document.createElementNS(NS, "line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y);
+    line.setAttribute("x2", x2 - 8); line.setAttribute("y2", y);
+    line.setAttribute("stroke", live ? "#37c6ff" : "#22344a");
+    line.setAttribute("stroke-width", "2");
+    if (!live) line.setAttribute("stroke-dasharray", "4 4");
+    svg.appendChild(line);
+    // arrowhead
+    const head = document.createElementNS(NS, "path");
+    head.setAttribute("d", `M${x2 - 8},${y - 5} L${x2},${y} L${x2 - 8},${y + 5} Z`);
+    head.setAttribute("fill", live ? "#37c6ff" : "#22344a");
+    svg.appendChild(head);
+    // animated flow pulse on live links
+    if (live) {
+      const pulse = document.createElementNS(NS, "circle");
+      pulse.setAttribute("r", "3"); pulse.setAttribute("fill", "#7af0ff"); pulse.setAttribute("cy", y);
+      const anim = document.createElementNS(NS, "animate");
+      anim.setAttribute("attributeName", "cx");
+      anim.setAttribute("values", `${x1};${x2 - 8}`);
+      anim.setAttribute("dur", "1.4s"); anim.setAttribute("repeatCount", "indefinite");
+      pulse.appendChild(anim); svg.appendChild(pulse);
+    }
+  }
+
+  // stage boxes
+  stages.forEach((s, i) => {
+    const x = padX + i * (boxW + gap), y = padY;
+    const holders = s.holders || [];
+    const color = statusColor(s);
+    const g = document.createElementNS(NS, "g");
+
+    const rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", x); rect.setAttribute("y", y);
+    rect.setAttribute("width", boxW); rect.setAttribute("height", boxH);
+    rect.setAttribute("rx", "11");
+    rect.setAttribute("fill", "#091322");
+    rect.setAttribute("stroke", color);
+    rect.setAttribute("stroke-width", holders.length ? "1.6" : "1.4");
+    if (!holders.length) rect.setAttribute("stroke-dasharray", "5 4");
+    g.appendChild(rect);
+
+    // status dot
+    const dot = document.createElementNS(NS, "circle");
+    dot.setAttribute("cx", x + 14); dot.setAttribute("cy", y + 16); dot.setAttribute("r", "5");
+    dot.setAttribute("fill", color);
+    g.appendChild(dot);
+
+    txt(g, x + 26, y + 20, `stage ${s.stage}`, "#e9f1fb", 13, 600);
+    const role = (i === 0 ? "  +embed" : "") + (i === stages.length - 1 ? "  +lm_head" : "");
+    if (role) txt(g, x + 26, y + 20, role, "#5e768f", 10, 400, x + 26 + 56);
+
+    const lr = s.layers ? `L ${s.layers[0]}–${s.layers[1]}` : "L ?";
+    txt(g, x + 14, y + 40, lr, "#37c6ff", 12, 500);
+    txt(g, x + 14, y + 40, ` (${s.layers ? s.layers[1] - s.layers[0] : "?"})`, "#5e768f", 11, 400, x + 14 + 58);
+
+    // holders
+    const hlabel = holders.length === 0 ? "no holder" :
+      holders.length === 1 ? `1 tab` : `${holders.length} tabs (R)`;
+    txt(g, x + 14, y + 60, hlabel, holders.length ? "#92a8c6" : "#ff5d72", 11.5, 500);
+    if (holders.length) txt(g, x + 14, y + 76, short(holders[0]), "#5e768f", 10.5, 400);
+    if (holders.length > 1) {
+      // replica chip
+      const chip = document.createElementNS(NS, "rect");
+      chip.setAttribute("x", x + boxW - 30); chip.setAttribute("y", y + 64);
+      chip.setAttribute("width", 22); chip.setAttribute("height", 14); chip.setAttribute("rx", 4);
+      chip.setAttribute("fill", "#13294d"); chip.setAttribute("stroke", "#2f6bff"); chip.setAttribute("stroke-width", "1");
+      g.appendChild(chip);
+      txt(g, x + boxW - 26, y + 74, `×${holders.length}`, "#7fb0ff", 9.5, 600);
+    }
+    svg.appendChild(g);
+  });
+}
+function txt(parent, x, y, s, fill, size, weight, atX) {
+  const t = document.createElementNS(NS, "text");
+  t.setAttribute("x", atX != null ? atX : x); t.setAttribute("y", y);
+  t.setAttribute("fill", fill); t.setAttribute("font-family", "ui-monospace,monospace");
+  t.setAttribute("font-size", String(size)); t.setAttribute("font-weight", String(weight));
+  t.textContent = s; parent.appendChild(t); return t;
+}
+function short(node) { return node ? node.slice(0, 8) + "…" : "—"; }
+
+// ---------- per-stage latency table ----------
+function renderLatency() {
+  const body = $("latbody");
+  const stages = state?.stages || [];
+  if (!stages.length) { body.innerHTML = `<tr><td colspan="5" class="empty" style="padding:18px">no telemetry yet</td></tr>`; return; }
+  body.innerHTML = "";
+  for (const s of stages) {
+    const holder = s.holders?.[0] || null;
+    const tel = holder ? holderTps.get(holder) : null;
+    const tr = document.createElement("tr");
+    const lat = tel?.compute_ms != null ? `${tel.compute_ms.toFixed ? tel.compute_ms.toFixed(1) : tel.compute_ms} ms` : "—";
+    const served = tel?.tokens != null ? tel.tokens : "—";
+    tr.innerHTML =
+      `<td class="stg">stage ${s.stage}${s.stage === 0 ? " ·embed" : ""}${s.stage === stages.length - 1 ? " ·head" : ""}</td>` +
+      `<td>${s.layers ? s.layers[0] + "–" + s.layers[1] : "?"}</td>` +
+      `<td>${holder ? short(holder) : '<span style="color:var(--bad)">— gap —</span>'}` +
+        (s.holders?.length > 1 ? ` <span style="color:#7fb0ff">+${s.holders.length - 1}</span>` : "") + `</td>` +
+      `<td class="lat">${lat}</td>` +
+      `<td>${served}</td>`;
+    body.appendChild(tr);
+  }
+}
+
+// enable Send once we know a run is ready (or at least has a holder for every stage)
+setInterval(() => {
+  const ok = connected && state && (state.ready || (state.stages || []).length > 0 && (state.stages || []).every((s) => (s.holders?.length || 0) > 0));
+  $("send").disabled = !ok || ($("cancel").disabled === false);
+  if (!connected) $("send").disabled = true;
+}, 800);
+
+// preload join link target for the "Open a tab" button even before a run is created
+$("run").addEventListener("input", () => { run = $("run").value || "demo"; });
+</script>
+</body>
+</html>
