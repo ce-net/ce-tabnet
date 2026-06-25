@@ -17,6 +17,9 @@ export const T = Object.freeze({
   PROMPT_BEGIN: "prompt-begin", RECRUIT: "recruit", EVICT: "evict",
   // DO -> operator
   RUN_STATE: "run-state", SEQ_STATUS: "seq-status", ERROR: "error",
+  // mesh request/reply ack (coordinator -> caller). The DO replied implicitly over the WS; on the
+  // mesh every request gets an explicit reply, so a generic ACK carries "accepted" + optional data.
+  ACK: "ack",
 });
 
 // ---- tab -> DO ----
@@ -71,6 +74,12 @@ export const runState = (run, model_id, S, R, stages, ready_, tabs_needed, tabs_
 export const seqStatus = (run, seq_id, status, detail = null) =>
   ({ t: T.SEQ_STATUS, run, seq_id, status, detail });
 export const error = (run, code, message) => ({ t: T.ERROR, run, code, message });
+
+// ---- mesh request/reply ack ----
+// Generic "request accepted" reply for the mesh request/reply path (join/ready/hb/prompt/...).
+// `data` carries any per-request extras (e.g. the assigned seq_id). The DO needed no such message
+// because a WS frame is fire-and-forget; mesh request() always resolves with a reply, so this is it.
+export const ack = (run, data = {}) => ({ t: T.ACK, run, ok: true, ...data });
 
 // ---- validation ----
 const REQUIRED = {
