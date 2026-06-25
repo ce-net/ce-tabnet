@@ -101,8 +101,10 @@ async function serve(args) {
       `  serving:    ${dir}\n` +
       `  open:       ${base}/orchestrator.html   (operator console — create a run, copy the join link)\n` +
       `              ${base}/join.html            (lend a tab — stage runtime)\n` +
-      `  coordinator: start it separately with  npx wrangler dev --config coordinator/wrangler.jsonc\n` +
-      `               (the pages auto-target ws://127.0.0.1:8787 on localhost)\n` +
+      `  coordination: over the CE MESH — a coordinator tab serves tabnet/<run>; peers find it via\n` +
+      `               the DHT. No Cloudflare/wrangler needed. The pages import @ce-net/sdk (set it\n` +
+      `               via an import map, window.CE_TABNET_SDK, or ?sdk=<esm-url>) and connect to the\n` +
+      `               in-tab CE browser node. The old coordinator/ Worker is dormant.\n` +
       `\nCtrl-C to stop.\n`
     );
   });

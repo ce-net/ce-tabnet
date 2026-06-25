@@ -1,7 +1,7 @@
 {
   "name": "@ce-net/tabnet",
   "version": "0.0.1",
-  "description": "Run a large LLM sharded across many ordinary browser tabs (laptops and phones), coordinated so it is dead simple: open a URL, lend a tab. Pipeline-parallel inference over WebGPU, coordinated by a Cloudflare Durable Object, built on CE browser nodes.",
+  "description": "Run a large LLM sharded across many ordinary browser tabs (laptops and phones), coordinated so it is dead simple: open a URL, lend a tab. Pipeline-parallel inference over WebGPU, coordinated over the CE mesh (a coordinator tab serves a tabnet/<run> mesh service; peers discover it via the DHT) — no central server. Built on CE browser nodes via @ce-net/sdk.",
   "type": "module",
   "license": "MIT",
   "author": "Leif Rydenfalk <ledamecrydenfalk@gmail.com>",
@@ -20,7 +20,7 @@
     "durable-objects",
     "petals"
   ],
-  "//": "The browser parts (web/) are dependency-free vanilla JS + WebGPU and need NO build step. The coordinator (coordinator/) is a Cloudflare Worker + Durable Object; its only dev dependency is wrangler, installed on demand, never required to open the pages.",
+  "//": "The browser parts (web/) are dependency-free vanilla JS + WebGPU + @ce-net/sdk (loaded via an import map / ?sdk= URL) and need NO build step. Coordination rides the CE mesh (web/mesh-coordinator.js + web/mesh-transport.js). The coordinator/ Cloudflare Worker + Durable Object is now DORMANT (kept for reference only) and is NOT required by the app — see coordinator/README.md.",
   "scripts": {
     "dev": "node dev/serve.js",
     "selftest": "node dev/serve.js --selftest",

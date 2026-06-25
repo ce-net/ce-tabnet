@@ -206,6 +206,12 @@ footer{border-top:1px solid var(--line-2);margin-top:34px;padding:22px 0 0;color
   </footer>
 </div>
 
+<!-- @ce-net/sdk module resolution (see join.html for the full note). Override with
+     window.CE_TABNET_SDK or ?sdk=<esm-url>; replace the CDN URL with a same-origin path in prod. -->
+<script type="importmap">
+{ "imports": { "@ce-net/sdk": "https://esm.sh/@ce-net/sdk@0.1.0" } }
+</script>
+
 <script type="module">
 import * as P from "./protocol.js";
 import { MODELS, tabsNeeded, defaultStagePlan } from "./model-config.js";

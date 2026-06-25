@@ -170,6 +170,15 @@ footer{border-top:1px solid var(--line-2);padding:24px 0 56px;margin-top:34px;co
   <footer>ce-tabnet — pronounced "Sea." A large model, sharded across ordinary browser tabs. Runs on phones and old laptops.</footer>
 </div>
 
+<!-- @ce-net/sdk module resolution. The mesh transport imports the SDK via the bare specifier
+     "@ce-net/sdk"; this import map points it at the published ESM. Override per-page with
+     window.CE_TABNET_SDK (set inline before the modules load) or ?sdk=<esm-url> — both bypass this
+     map via a direct dynamic import. When ce-tabnet is served from ce-net.com alongside a built SDK,
+     replace the CDN URL below with the same-origin path (keeps the strict CSP `connect-src 'self'`). -->
+<script type="importmap">
+{ "imports": { "@ce-net/sdk": "https://esm.sh/@ce-net/sdk@0.1.0" } }
+</script>
+
 <script type="module">
 import { TabnetNode, detect } from "./tabnet-node.js";
 import { sdkSpecifier } from "./config.js";

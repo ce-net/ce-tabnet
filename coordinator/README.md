@@ -1,5 +1,12 @@
 # ce-tabnet coordinator
 
+> DORMANT — NOT USED BY THE APP. Coordination moved onto the CE mesh. This Cloudflare Worker +
+> Durable Object is retained for reference only; the live app coordinates over the mesh via
+> `web/mesh-coordinator.js` (the former DO logic, re-homed) + `web/mesh-transport.js` (the
+> @ce-net/sdk serve/locate/call + pub/sub transport). The tabs no longer open a WebSocket to this
+> Worker, and nothing requires it to be deployed. Delete this directory whenever convenient; it is
+> kept only so the original star-relay design is auditable against the mesh port.
+
 A Cloudflare **Worker + Durable Object** that coordinates one sharded-LLM **Run** across many
 browser tabs. One Durable Object instance == one Run (one model instance), addressed by
 `idFromName(runId)`.

@@ -288,8 +288,10 @@ export class RunCoordinator {
       if (done) seq.status = "done";
       else if (seq.status === "prefill") seq.status = "decoding";
     }
+    // Re-emit with the correct 7-arg shape (run, node, seq_id, token_pos, token_id, text, done).
     const out = P.token(
-      this.config?.run ?? this.run, msg.seq_id, msg.token_pos, msg.token_id, msg.text, done,
+      this.config?.run ?? this.run, msg.node ?? this.selfId,
+      msg.seq_id, msg.token_pos, msg.token_id, msg.text ?? "", done,
     );
     this._publishToken(out);
 
