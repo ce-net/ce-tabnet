@@ -283,6 +283,113 @@ async function selftest() {
   tab1.events.slice(0, 8).forEach((e) => log("  " + e));
   log("\noperator token stream: " + JSON.stringify(operatorTokens.map((t) => t.token_id)));
 
+  // ---- 5. the MESH coordinator: drive web/mesh-coordinator.js RunCoordinator headlessly ----
+  // This is the former Durable Object's logic, now mesh-hosted. We exercise it with the SAME
+  // join -> assign -> ready -> prompt -> activation hops -> token -> autoregression -> done flow,
+  // wiring its directed sends / pub-sub callbacks to in-memory stage tabs. No SDK, no network — it
+  // proves the migrated coordination logic produces an identical token stream off the mesh path.
+  log("\n--- mesh coordinator (web/mesh-coordinator.js) ---");
+  const MC = await import(path.join(WEB_DIR, "mesh-coordinator.js"));
+
+  // In-memory mesh: directed control + activation routing between coordinator and two stage tabs.
+  const meshTabs = {};      // nodeId -> stage tab
+  const opStateMsgs = [];   // run-state/error pushed to the (operator) state topic
+  const opTokenMsgs = [];   // token/seq-status pushed to the tokens topic
+
+  const mcoord = new MC.RunCoordinator({
+    run: "mesh-demo",
+    selfId: "coord",
+    publishState: (obj) => opStateMsgs.push(obj),
+    publishToken: (obj) => opTokenMsgs.push(obj),
+    sendTo: (node, obj) => { const t = meshTabs[node]; if (t) t.recvControl(obj); },
+    onLog: () => {},
+  });
+
+  // A headless stage tab mirroring web/tabnet-node.js control handling, with the mock engine above.
+  function meshTab(node) {
+    const tab = {
+      id: node, stage: null, isFirst: false, isLast: false, nextNode: null,
+      ctx: { is_last: false }, seqState: new Map(), events: [],
+      recvControl(m) {
+        if (m.t === P.T.ASSIGN_STAGE) {
+          tab.stage = m.stage; tab.isFirst = m.is_first; tab.isLast = m.is_last;
+          tab.nextNode = m.next_node; tab.ctx = { is_last: m.is_last };
+          // simulate load + immediate ready (no real shard fetch in the mock)
+          mcoord.handleRequest(node, P.ready("mesh-demo", node, m.stage, m.layers, 1));
+        } else if (m.t === P.T.ROUTE_UPDATE) {
+          tab.nextNode = m.next_node;
+        } else if (m.t === P.T.PROMPT_BEGIN) {
+          const ids = (m.token_ids && m.token_ids.length) ? m.token_ids : [1];
+          tab.seqState.set(m.seq_id, { pos: ids.length, max_tokens: m.max_tokens, generated: 0 });
+          tab.events.push(`prompt-begin@stage${tab.stage} len=${ids.length}`);
+          const out = mockEngine(tab.ctx, { seq_id: m.seq_id, token_pos: 0, token_ids: ids });
+          tab.sendActivation(m.seq_id, ids.length - 1, out.hidden);
+        } else if (m.t === P.T.TOKEN) {
+          if (!tab.isFirst) return;
+          const st = tab.seqState.get(m.seq_id); if (!st) return;
+          st.generated += 1;
+          if (m.done || st.generated >= st.max_tokens) return;
+          const pos = st.pos; st.pos += 1;
+          tab.events.push(`decode@stage0 pos=${pos}`);
+          const out = mockEngine(tab.ctx, { seq_id: m.seq_id, token_pos: pos, token_ids: [m.token_id] });
+          tab.sendActivation(m.seq_id, pos, out.hidden);
+        }
+      },
+      recvActivation(frameBuf) {
+        const { meta, payload } = P.decodeActivation(frameBuf);
+        tab.events.push(`activation@stage${tab.stage} pos=${meta.token_pos}`);
+        const out = mockEngine(tab.ctx, { seq_id: meta.seq_id, token_pos: meta.token_pos, hidden: new Uint16Array(payload) });
+        if (tab.isLast) {
+          // last stage -> token goes directly to the coordinator (directed send), which routes it.
+          mcoord.routeToken(P.token("mesh-demo", node, meta.seq_id, meta.token_pos, out.token_id, "", false));
+        } else {
+          tab.sendActivation(meta.seq_id, meta.token_pos, out.hidden);
+        }
+      },
+      sendActivation(seq_id, token_pos, hidden) {
+        // direct peer-to-peer: deliver to nextNode's tab (no central relay).
+        const meta = { run: "mesh-demo", node, seq_id, token_pos, from_stage: tab.stage, to_stage: tab.stage + 1, dtype: "f16", shape: [hidden.length] };
+        const next = meshTabs[tab.nextNode];
+        if (next) next.recvActivation(P.encodeActivation(meta, hidden));
+      },
+    };
+    meshTabs[node] = tab;
+    return tab;
+  }
+
+  // Need a 2-stage plan: register two beefy tabs so the planner makes 2 stages for this model.
+  // (Budgets are read from caps in planStages; give each ~half the model so plan.length === 2.)
+  const halfBytes = Math.ceil(m.approx_weight_bytes / 2);
+  const capHalf = { vram_mb: Math.ceil(halfBytes / (1024 * 1024)) };
+  meshTab("mnode-0");
+  meshTab("mnode-1");
+
+  // Join both tabs FIRST (they become spares — no config yet), exactly like the DO flow where
+  // tabs connect before the operator defines the run. Then create-run runs planStages() against
+  // the two live half-budget tabs, producing a 2-stage plan and assigning + readying them.
+  mcoord.handleRequest("mnode-0", P.join("mesh-demo", "mnode-0", capHalf));
+  mcoord.handleRequest("mnode-1", P.join("mesh-demo", "mnode-1", capHalf));
+  mcoord.createRun({ run: "mesh-demo", model_id: MODEL, replicas: 1 });
+
+  assert(mcoord.plan.length === 2, `mesh coordinator built a 2-stage plan (got ${mcoord.plan.length})`);
+  assert(mcoord._isReady(), "mesh coordinator reports the pipeline READY after both tabs loaded");
+
+  const MAXM = 5;
+  const ok = mcoord.startSequence(P.prompt("mesh-demo", "mseq-1", [10, 20, 30], { max_tokens: MAXM }));
+  assert(ok === true, "mesh coordinator accepted the prompt (pipeline ready)");
+
+  const meshTokens = opTokenMsgs.filter((x) => x.t === P.T.TOKEN);
+  assert(meshTokens.length === MAXM, `mesh: operator received exactly ${MAXM} tokens (got ${meshTokens.length})`);
+  assert(meshTokens[meshTokens.length - 1].done === true, "mesh: last token carries done=true (coordinator enforced max_tokens)");
+  assert(meshTabs["mnode-1"].events.some((e) => e.startsWith("activation@stage1")),
+    "mesh: stage 1 received hidden-state activations directly from stage 0 (no relay)");
+  assert(meshTabs["mnode-0"].events.some((e) => e.startsWith("decode@stage0")),
+    "mesh: stage 0 ran autoregressive decode steps driven by coordinator token feedback");
+  assert(opStateMsgs.some((x) => x.t === P.T.RUN_STATE && x.ready === true),
+    "mesh: a READY run-state was published to the operator state topic");
+
+  log("mesh operator token stream: " + JSON.stringify(meshTokens.map((t) => t.token_id)));
+
   log("\n" + (failures === 0 ? "SELFTEST PASSED" : `SELFTEST FAILED (${failures} failures)`));
   process.exit(failures === 0 ? 0 : 1);
 }

@@ -278,11 +278,11 @@ async function connectAndHost(createRunMsg) {
     await mesh.connect();
     // Receive run-state / tokens / status / errors / metrics off the pub/sub topics.
     mesh
-      .onControl(P.T.RUN_STATE,  (m) => onRunState(m))
-      .onControl(P.T.TOKEN,      (m) => onToken(m))
-      .onControl(P.T.SEQ_STATUS, (m) => onSeqStatus(m))
-      .onControl(P.T.METRICS,    (m) => onMetrics(m))
-      .onControl(P.T.ERROR,      (m) => onError(m));
+      .onPubSub(P.T.RUN_STATE,  (m) => onRunState(m))
+      .onPubSub(P.T.TOKEN,      (m) => onToken(m))
+      .onPubSub(P.T.SEQ_STATUS, (m) => onSeqStatus(m))
+      .onPubSub(P.T.METRICS,    (m) => onMetrics(m))
+      .onPubSub(P.T.ERROR,      (m) => onError(m));
     const T = (await import("./mesh-coordinator.js")).runTopics(run);
     await mesh.startReading([T.state, T.tokens]); // subscribe to operator-facing pub/sub topics
     // Host the coordinator (the operator tab is the natural host) and apply create-run.

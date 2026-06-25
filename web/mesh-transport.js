@@ -62,8 +62,10 @@ export class MeshTransport {
     this.ce = null;
     this.selfId = null;
     this._ctrl = new AbortController();
-    // directed-control handlers, keyed by message type (set by the runtime via on()).
+    // directed-control handlers (svc topic), keyed by message type (set by the runtime via on()).
     this._onControl = new Map();
+    // pub/sub handlers (state/tokens topics), keyed by message type (operator UI updates).
+    this._onPubSub = new Map();
     this._onActivation = null; // (meta, payloadArrayBuffer) => void
     this._coordinator = null; // RunCoordinator if we host
     this._reading = false;
@@ -80,7 +82,13 @@ export class MeshTransport {
   }
 
   // ---- register typed handlers the runtime cares about ----
+  // Directed control messages addressed to THIS node on the svc topic (assign/route/prompt-begin/
+  // token-feedback/recruit/...). Used by stage tabs and by the coordinator host.
   onControl(type, fn) { this._onControl.set(type, fn); return this; }
+  // Pub/sub messages on the state/tokens topics (run-state, token, seq-status, error, metrics).
+  // Used by the operator UI. Kept separate from onControl so the same message type (e.g. `token`)
+  // can mean "feedback to the coordinator" (directed) vs "display this" (broadcast).
+  onPubSub(type, fn) { this._onPubSub.set(type, fn); return this; }
   onActivation(fn) { this._onActivation = fn; return this; }
 
   // ===========================================================================
@@ -92,6 +100,11 @@ export class MeshTransport {
   // Caches the coordinator NodeId from the located instance so directed token/metrics sends don't
   // re-locate per token.
   async callCoordinator(msg, opts = {}) {
+    // If THIS tab hosts the coordinator (operator), answer in-process — no self-addressed mesh
+    // round-trip, and works even before our own DHT advertisement has propagated.
+    if (this._coordinator) {
+      return this._coordinator.handleRequest(this.selfId, msg);
+    }
     const sdk = await loadSdk(this.sdkSpec);
     const insts = await sdk.locate(this.ce, this.topics.svc, { want: 3, maxStaleSecs: 60 });
     if (insts.length === 0) throw new Error(`no coordinator for run ${this.run}`);
@@ -182,13 +195,19 @@ export class MeshTransport {
       return;
     }
 
-    // Directed control (svc topic, fire-and-forget) OR pub/sub (state/tokens). Requests with a
-    // replyToken are consumed by the coordinator's serve() loop, so skip them here.
+    // Requests with a replyToken on the svc topic are consumed by the coordinator's serve() loop.
     if (m.replyToken !== null && m.topic === this.topics.svc) return;
 
     let payload; try { payload = m.payload(); } catch { return; }
     const obj = decodeMsg(payload);
     if (!obj || typeof obj.t !== "string") return;
+
+    // pub/sub topics -> operator UI handlers; svc directed control -> control handlers.
+    if (m.topic === this.topics.state || m.topic === this.topics.tokens) {
+      const fn = this._onPubSub.get(obj.t);
+      if (fn) fn(obj, m.from);
+      return;
+    }
     const fn = this._onControl.get(obj.t);
     if (fn) fn(obj, m.from);
   }
