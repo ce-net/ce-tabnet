@@ -3,6 +3,12 @@
 //
 // Reuses the CE browser-node identity + capability detection from web/site/node.html
 // (gpuName, cpuBench, vramMb, detect). A tab IS a CE browser node.
+//
+// COORDINATION TRANSPORT: this runtime no longer opens a WebSocket to a Cloudflare Durable Object.
+// It talks to the run's coordinator OVER THE CE MESH via web/mesh-transport.js (@ce-net/sdk
+// serve/locate/call + mesh.send/publish/subscribe). join/ready/hb/prompt go to the located
+// coordinator as mesh requests; activation hops go DIRECTLY peer-to-peer between adjacent stages'
+// CE NodeIds. The compute/tensor path (shard-loader + inference-worker) is unchanged.
 
 import * as P from "./protocol.js";
 import { load as loadShard } from "./shard-loader.js";
@@ -11,8 +17,12 @@ import { load as loadShard } from "./shard-loader.js";
 // We import the engine same-thread here; importing the module also installs the
 // Float16Array polyfill used below for activation framing.
 import { initStage, forward, freeStage } from "./inference-worker.js";
+import { MeshTransport } from "./mesh-transport.js";
 
-// ---- CE identity (same scheme as node.html) ----
+// ---- CE identity ----
+// The tab's node id is now the CE browser-node's real NodeId (resolved by MeshTransport.connect()).
+// We keep a localStorage fallback only for UI display before the mesh node is up; the authoritative
+// id is `this.id`, set from the mesh node, so neighbor wiring routes real mesh peers.
 export function nodeId() {
   let id = localStorage.getItem("ce_node_id");
   if (!id) { const b = new Uint8Array(32); crypto.getRandomValues(b);
@@ -39,11 +49,12 @@ export async function detect() {
 }
 
 // ---- the runtime ----
-// new TabnetNode({ run, wsBase, onLog, onState }).start()
+// new TabnetNode({ run, sdkSpec, onLog, onState }).start()
 export class TabnetNode {
-  constructor({ run, wsBase, onLog = () => {}, onState = () => {}, onMetrics = () => {} }) {
-    this.run = run; this.wsBase = wsBase; this.onLog = onLog; this.onState = onState; this.onMetrics = onMetrics;
-    this.id = nodeId(); this.ws = null; this.hb = null; this.ctx = null; this.stage = null;
+  constructor({ run, sdkSpec, onLog = () => {}, onState = () => {}, onMetrics = () => {} }) {
+    this.run = run; this.sdkSpec = sdkSpec; this.onLog = onLog; this.onState = onState; this.onMetrics = onMetrics;
+    this.id = nodeId(); // provisional id for UI; replaced by the CE NodeId once the mesh connects
+    this.mesh = null; this.hb = null; this.ctx = null; this.stage = null;
     // honest live-throughput accounting: every activation/token that actually passes through THIS stage.
     this.tokensThrough = 0;        // total tokens this stage has computed since assignment
     this._win = [];                // timestamps (ms) of recent tokens, for a rolling tok/s rate
@@ -64,38 +75,49 @@ export class TabnetNode {
   async start() {
     this.caps = await detect();
     this.onState({ phase: "connecting", caps: this.caps });
-    this._connect();
+    await this._connect();
   }
 
-  _connect() {
-    this.ws = new WebSocket(`${this.wsBase}/run/${this.run}/ws?role=stage`);
-    this.ws.binaryType = "arraybuffer";
-    this.ws.onopen = () => {
-      this.ws.send(JSON.stringify(P.join(this.run, this.id, this.caps)));
-      clearInterval(this.hb);
-      this.hb = setInterval(() => this._send(P.hb(this.run, this.id)), 10000);
-      this.onLog("joined run " + this.run);
-    };
-    this.ws.onmessage = (ev) => this._onMessage(ev);
-    this.ws.onclose = () => { clearInterval(this.hb); this.onState({ phase: "disconnected" }); setTimeout(() => this._connect(), 2000); };
-    this.ws.onerror = () => { try { this.ws.close(); } catch {} };
-  }
-
-  async _onMessage(ev) {
-    // binary frame = activation hot path; text = JSON control/relay
-    if (ev.data instanceof ArrayBuffer) { const { meta, payload } = P.decodeActivation(ev.data); return this._onActivation(meta, payload); }
-    let m; try { m = JSON.parse(ev.data); } catch { return; }
-    switch (m.t) {
-      case P.T.WELCOME:       if (typeof m.S === "number") this.S = m.S; if (typeof m.R === "number") this.R = m.R; return;
-      case P.T.ASSIGN_STAGE:  if (typeof m.S === "number") this.S = m.S; return this._onAssign(m);
-      case P.T.ROUTE_UPDATE:  this.prevNode = m.prev_node; this.nextNode = m.next_node; return;
-      case P.T.PROMPT_BEGIN:  return this._onPromptBegin(m);          // stage 0
-      case P.T.ACTIVATION:    return this._onActivation(m, null);     // JSON fallback path
-      case P.T.TOKEN:         return this._onTokenForStage0(m);       // stage 0: next decode step
-      case P.T.RECRUIT:       return this._onRecruit(m);              // healing
-      case P.T.EVICT:         return this._onEvict(m);
-      default: return;
+  async _connect() {
+    // 1. Bring up the CE mesh node and learn our real NodeId.
+    this.mesh = new MeshTransport({ run: this.run, sdkSpec: this.sdkSpec, onLog: this.onLog });
+    try {
+      this.id = await this.mesh.connect();
+      localStorage.setItem("ce_node_id", this.id);
+    } catch (e) {
+      this.onLog("mesh connect failed: " + e);
+      this.onState({ phase: "disconnected" });
+      setTimeout(() => this._connect(), 3000);
+      return;
     }
+
+    // 2. Register the directed control handlers the coordinator sends us (assign/route/prompt/...),
+    //    and the direct peer-to-peer activation handler. Then start draining the message stream.
+    this.mesh
+      .onControl(P.T.WELCOME,      (m) => { if (typeof m.S === "number") this.S = m.S; if (typeof m.R === "number") this.R = m.R; })
+      .onControl(P.T.ASSIGN_STAGE, (m) => { if (typeof m.S === "number") this.S = m.S; this._onAssign(m); })
+      .onControl(P.T.ROUTE_UPDATE, (m) => { this.prevNode = m.prev_node; this.nextNode = m.next_node; })
+      .onControl(P.T.PROMPT_BEGIN, (m) => this._onPromptBegin(m))      // stage 0
+      .onControl(P.T.TOKEN,        (m) => this._onTokenForStage0(m))   // stage 0: next decode step
+      .onControl(P.T.RECRUIT,      (m) => this._onRecruit(m))          // healing
+      .onControl(P.T.EVICT,        (m) => this._onEvict(m))
+      .onActivation((meta, payload) => this._onActivation(meta, payload));
+    await this.mesh.startReading();
+
+    // 3. Join the run via the coordinator (mesh request). Reply is the welcome.
+    try {
+      const welcome = await this.mesh.callCoordinator(P.join(this.run, this.id, this.caps));
+      if (welcome && typeof welcome.S === "number") this.S = welcome.S;
+      this.onLog("joined run " + this.run);
+    } catch (e) {
+      this.onLog("join failed (coordinator not found yet): " + e);
+    }
+
+    // 4. Heartbeat to the coordinator on the same cadence as before (10s).
+    clearInterval(this.hb);
+    this.hb = setInterval(() => {
+      this.mesh.sendToCoordinator(P.hb(this.run, this.id)).catch(() => {});
+    }, 10000);
   }
 
   // ---- runtime bodies ----
@@ -110,7 +132,8 @@ export class TabnetNode {
       layers: m.layers, needEmbed: m.is_first, needLmHead: m.is_last });
     this.ctx = await initStage({ arch: weights.arch, dims: weights.dims, layers: m.layers,
       is_first: m.is_first, is_last: m.is_last, weights });
-    this._send(P.ready(this.run, this.id, m.stage, m.layers, weightBytes(weights)));
+    // `ready` is a coordinator-bound control message (request, reply ignored).
+    this.mesh.sendToCoordinator(P.ready(this.run, this.id, m.stage, m.layers, weightBytes(weights))).catch(() => {});
     this.onState({ phase: "ready", stage: m.stage });
     this.onLog(`stage ${m.stage} ready (layers ${m.layers[0]}..${m.layers[1]})`);
   }
@@ -120,10 +143,11 @@ export class TabnetNode {
       hidden: payload ? new Float16Array(payload) : meta.data });
     this._tick();
     if (this.isLast) {
-      // The last stage sampled the next token. The coordinator fans it to operators AND
-      // back to stage 0 to drive the next decode step (autoregression closes the loop).
-      this._send(P.token(this.run, this.id, meta.seq_id, meta.token_pos, out.token_id, "", false));
+      // The last stage sampled the next token. It goes to the COORDINATOR (directed mesh send),
+      // which publishes it to operators AND feeds it back to stage 0 to close autoregression.
+      this.mesh.sendToCoordinator(P.token(this.run, this.id, meta.seq_id, meta.token_pos, out.token_id, "", false)).catch(() => {});
     } else {
+      // Middle/first stage: hop the hidden state DIRECTLY to the next stage's CE NodeId.
       this._sendActivation(meta.seq_id, meta.token_pos, out.hidden);
     }
   }
@@ -165,9 +189,18 @@ export class TabnetNode {
   _sendActivation(seq_id, token_pos, hidden) {
     const meta = { run: this.run, node: this.id, seq_id, token_pos,
       from_stage: this.stage, to_stage: this.stage + 1, dtype: "f16", shape: [hidden.length] };
-    this._send(P.encodeActivation(meta, hidden));   // binary hot path
+    const frame = P.encodeActivation(meta, hidden);   // binary hot path
+    // Direct peer-to-peer hop to the next stage's CE NodeId — no central relay.
+    if (this.nextNode) this.mesh.sendActivation(this.nextNode, frame).catch(() => {});
   }
-  _send(obj) { try { this.ws.send(obj instanceof ArrayBuffer ? obj : JSON.stringify(obj)); } catch {} }
+
+  // Graceful teardown: tell the coordinator we're leaving and stop the mesh transport.
+  stop() {
+    clearInterval(this.hb);
+    try { this.mesh?.sendToCoordinator(P.leave(this.run, this.id)).catch(() => {}); } catch {}
+    try { this.mesh?.stop(); } catch {}
+    if (this.ctx) { try { freeStage(this.ctx); } catch {} this.ctx = null; }
+  }
 }
 
 // Sum the bytes a stage actually loaded (handles single-buffer and multi-part layer objects).

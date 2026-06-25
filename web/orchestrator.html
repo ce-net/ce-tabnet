@@ -202,14 +202,15 @@ footer{border-top:1px solid var(--line-2);margin-top:34px;padding:22px 0 0;color
   <footer>
     ce-tabnet — pipeline-parallel LLM inference across browser tabs. Honest math: a tab holds ~0.5–2&nbsp;GB of WebGPU
     weights, so 300B&nbsp;@&nbsp;4-bit (~150&nbsp;GB) needs ~100–300 tabs. The same code path runs a small model on a few
-    tabs today and a 300B-class model on hundreds. Coordination: Cloudflare Worker + Durable Object (one per run).
+    tabs today and a 300B-class model on hundreds. Coordination: a CE mesh service (one per run) — no central server.
   </footer>
 </div>
 
 <script type="module">
 import * as P from "./protocol.js";
 import { MODELS, tabsNeeded, defaultStagePlan } from "./model-config.js";
-import { coordinatorBase } from "./config.js";
+import { sdkSpecifier } from "./config.js";
+import { MeshTransport } from "./mesh-transport.js";
 
 const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
@@ -223,11 +224,11 @@ for (const id of Object.keys(MODELS)) {
   $("model").appendChild(o);
 }
 
-// ---------- coordinator endpoint ----------
-// Resolved by web/config.js — the single source of truth shared with join.html:
-// ?hub=... overrides; else window.CE_TABNET_HUB; else local wrangler dev; else same-origin /tabnet.
-// The Worker routes /run/:id/ws to the RunCoordinator Durable Object.
-const HUB = coordinatorBase();
+// ---------- coordination over the CE mesh ----------
+// No central coordinator URL. The operator's tab HOSTS the run's coordinator as a mesh service
+// (tabnet/<run>) and discovers/serves it over the CE DHT; web/config.js only resolves the @ce-net/sdk
+// module specifier. The operator subscribes to the run's state/tokens pub/sub topics for updates.
+const SDK_SPEC = sdkSpecifier();
 
 // ---------- capacity math (honest, recomputed on every input) ----------
 function perTabBytes() { return Math.max(0.25, +$("perTab").value || 1) * 1024 * 1024 * 1024; }
@@ -255,7 +256,7 @@ for (const id of ["stages", "replicas", "perTab"]) $(id).oninput = refreshMath;
 refreshMath();
 
 // ---------- run state ----------
-let ws = null, run = "demo", connected = false;
+let mesh = null, run = "demo", connected = false;
 let state = null;                 // last run-state snapshot
 const holderTps = new Map();      // node -> {tps, compute_ms, tokens} from forwarded metrics
 // generation timing (end-to-end, honest — measured here from token arrivals)
@@ -263,46 +264,50 @@ let gen = null;                   // { seq_id, t0, tFirst, count, win:[ts], maxT
 
 function joinLink() {
   const base = location.pathname.replace(/orchestrator\.html$/, "join.html");
-  return `${location.origin}${base}?run=${encodeURIComponent(run)}&hub=${encodeURIComponent(HUB)}`;
+  // Tabs discover the coordinator over the mesh by run id — only the run id is needed in the link.
+  return `${location.origin}${base}?run=${encodeURIComponent(run)}`;
 }
 
-function connect(onReady) {
+// Bring up this tab's CE mesh node, host the run coordinator, and subscribe to its pub/sub topics.
+// Idempotent: a second create on the same run re-applies create-run to the live coordinator.
+async function connectAndHost(createRunMsg) {
   run = ($("run").value || "demo").trim();
-  if (ws && connected) { onReady && onReady(); return; }
-  setRunDot("warn", "connecting to coordinator…");
-  ws = new WebSocket(`${HUB}/run/${run}/ws?role=operator`);
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => {
+  setRunDot("warn", "starting mesh node…");
+  if (!mesh) {
+    mesh = new MeshTransport({ run, sdkSpec: SDK_SPEC, onLog: (s) => console.debug("[tabnet]", s) });
+    await mesh.connect();
+    // Receive run-state / tokens / status / errors / metrics off the pub/sub topics.
+    mesh
+      .onControl(P.T.RUN_STATE,  (m) => onRunState(m))
+      .onControl(P.T.TOKEN,      (m) => onToken(m))
+      .onControl(P.T.SEQ_STATUS, (m) => onSeqStatus(m))
+      .onControl(P.T.METRICS,    (m) => onMetrics(m))
+      .onControl(P.T.ERROR,      (m) => onError(m));
+    const T = (await import("./mesh-coordinator.js")).runTopics(run);
+    await mesh.startReading([T.state, T.tokens]); // subscribe to operator-facing pub/sub topics
+    // Host the coordinator (the operator tab is the natural host) and apply create-run.
+    await mesh.hostCoordinator(createRunMsg);
     connected = true;
-    ws.send(JSON.stringify(P.subscribeTokens(run)));   // all-seq status + state
-    onReady && onReady();
-  };
-  ws.onmessage = (ev) => {
-    if (ev.data instanceof ArrayBuffer) return;        // operators don't get binary activation frames
-    let m; try { m = JSON.parse(ev.data); } catch { return; }
-    switch (m.t) {
-      case P.T.RUN_STATE:  onRunState(m); break;
-      case P.T.TOKEN:      onToken(m); break;
-      case P.T.SEQ_STATUS: onSeqStatus(m); break;
-      case P.T.METRICS:    onMetrics(m); break;        // forwarded per-stage telemetry (if coordinator relays)
-      case P.T.ERROR:      onError(m); break;
-    }
-  };
-  ws.onclose = () => { connected = false; setRunDot("off", "disconnected"); setTimeout(() => { if (run) connect(); }, 2000); };
-  ws.onerror = () => { try { ws.close(); } catch {} };
+  } else if (createRunMsg) {
+    // Already hosting: re-apply create-run via the in-process coordinator.
+    mesh._coordinator?.createRun({ ...createRunMsg, run });
+  }
+  setRunDot("warn", "run created — waiting for tabs to join");
 }
 
-$("create").onclick = () => {
+$("create").onclick = async () => {
   refreshMath();
-  connect(() => {
-    const stages = +$("stages").value || null;
-    const replicas = Math.max(1, +$("replicas").value || 1);
-    ws.send(JSON.stringify(P.createRun(run, $("model").value, { stages, replicas })));
+  const stages = +$("stages").value || null;
+  const replicas = Math.max(1, +$("replicas").value || 1);
+  try {
+    await connectAndHost(P.createRun(($("run").value || "demo").trim(), $("model").value, { stages, replicas }));
     const link = joinLink();
     $("joinlink").textContent = link;
     $("openjoin").dataset.href = link;
-    setRunDot("warn", "run created — waiting for tabs to join");
-  });
+  } catch (e) {
+    setRunDot("off", "mesh node unavailable");
+    onError(P.error(run, "no_node", "could not reach a CE browser node: " + e));
+  }
 };
 
 $("copy").onclick = async () => {
@@ -313,8 +318,8 @@ $("copy").onclick = async () => {
 $("openjoin").onclick = () => { const h = $("openjoin").dataset.href; if (h) window.open(h, "_blank", "noopener"); };
 
 // ---------- prompt lifecycle ----------
-$("send").onclick = () => {
-  if (!connected) return;
+$("send").onclick = async () => {
+  if (!connected || !mesh) return;
   const text = $("prompt").value;
   if (!text.trim()) return;
   const sid = "s" + Date.now().toString(36);
@@ -324,17 +329,23 @@ $("send").onclick = () => {
   $("s-tps").textContent = "0.0";
   $("s-ttft").textContent = "…";
   $("send").disabled = true; $("cancel").disabled = false;
-  ws.send(JSON.stringify(P.subscribeTokens(run, sid)));
-  ws.send(JSON.stringify(P.prompt(run, sid, text, {
-    max_tokens: +$("maxtok").value || 128,
-    temperature: +$("temp").value || 0.7,
-    top_p: +$("topp").value || 0.95,
-  })));
   $("seqline").innerHTML = `seq <b>${sid}</b> · queued`;
+  // Token + status updates arrive on the tokens pub/sub topic (already subscribed). The prompt
+  // itself is a coordinator request over the mesh.
+  try {
+    const reply = await mesh.callCoordinator(P.prompt(run, sid, text, {
+      max_tokens: +$("maxtok").value || 128,
+      temperature: +$("temp").value || 0.7,
+      top_p: +$("topp").value || 0.95,
+    }));
+    if (reply && reply.t === P.T.ERROR) onError(reply);
+  } catch (e) {
+    onError(P.error(run, "prompt_failed", String(e)));
+  }
 };
 
-$("cancel").onclick = () => {
-  if (connected && gen) ws.send(JSON.stringify(P.cancel(run, gen.seq_id)));
+$("cancel").onclick = async () => {
+  if (connected && mesh && gen) { try { await mesh.callCoordinator(P.cancel(run, gen.seq_id)); } catch {} }
   $("cancel").disabled = true; $("send").disabled = false;
 };
 
